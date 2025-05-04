@@ -1,0 +1,38 @@
+name: pose_diffusion_trinity
+
+train_data_path: data/trinity
+val_data_path: data/trinity
+test_data_path: data/trinity
+
+wordembed_dim: 300
+wordembed_path: data/fasttext/crawl-300d-2M-subword.bin
+
+model_save_path: output/train_diffusion_trinity
+random_seed: -1
+
+pose_dim: 129  # Changed from 27 or 126 to 129 for your data
+diff_hidden_dim: 512
+block_depth: 8
+
+# model params
+model: pose_diffusion
+mean_dir_vec: [0.0, 0.0, 0.0]  # Replace with your computed mean direction vector
+mean_pose: [0.0, 0.0, 0.0]  # Not used directly for direction vectors
+
+hidden_size: 300
+input_context: audio
+
+classifier_free: True
+null_cond_prob: 0.1
+
+# train params
+epochs: 300
+batch_size: 128
+learning_rate: 0.0005
+
+# dataset params
+motion_resampling_framerate: 15
+n_poses: 34
+n_pre_poses: 4
+subdivision_stride: 10
+loader_workers: 4
