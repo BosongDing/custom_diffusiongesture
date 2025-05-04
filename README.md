@@ -56,18 +56,25 @@ The BEAT dataset contains multi-modal motion capture data with aligned speech au
 6. During training, the dataset is loaded using a data loader that accesses the LMDB database.
 
 ## Usage Instructions
+0. install the requirements 
 
-1first you can verify the BVH files contain correct data by visualizing it directly:
+ note that I am using CUDA 12.0, if you are using older versions you can follow the requirements in https://github.com/Advocate99/DiffGesture
+```bash
+conda create -n diffgesture python=3.7
+conda activate diffgesture
+pip install -r requirements.txt
+```
+1. first you can verify the BVH files contain correct data by visualizing it directly:
 ```bash
 python bvh_player.py --bvh <path_to_your_bvh_file> --audio <path_to_your_audio_file>
 ```
-2then we need to convert BVH files into correct direction vector format. here we have 3 options for --dataset trinity/beat/all
+2. then we need to convert BVH files into correct direction vector format. here we have 3 options for --dataset trinity/beat/all
 ```bash
 python /scripts/preprocess/BVH_convert.py --dataset all
 ```
-3(optional)next, we convert the data collected by Quest3 into the same format.
+3. (optional)next, we convert the data collected by Quest3 into the same format.
 
-3.1.visualize the collected data by running 
+3.1. (optional) visualize the collected data by running 
 ```bash
 python /scripts/preprocess/play_json.py --json <path_to_your_json_file> --audio <path_to_your_audio_file>
 ```
