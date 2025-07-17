@@ -189,8 +189,8 @@ if __name__ == '__main__':
     
     # Parse arguments
     args = parser.parse_args()
-    args.json = "/home/bsd/cospeech/DiffGesture/data/quest/voice_20250427_143848_motion_0.json"
-    args.audio = "/home/bsd/cospeech/DiffGesture/data/quest/voice_20250427_143848_speech_0.wav"
+    args.json = "/home/bsd/cospeech/DiffGesture/data/quest/dataset/voice_20250511_173952_motion_2.json"
+    args.audio = "/home/bsd/cospeech/DiffGesture/data/quest/dataset/voice_20250511_173952_speech_2.wav"
     # Check if JSON file exists
     if not os.path.exists(args.json):
         print(f"Error: JSON file not found at {args.json}")

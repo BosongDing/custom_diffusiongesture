@@ -8,17 +8,17 @@ import pprint
 import sys
 import time
 
-from data_loader.lmdb_data_loader import *
-from model.pose_diffusion import PoseDiffusion
-from parse_args_diffusion import parse_args
-from train_eval.train_diffusion import train_iter_diffusion
-from utils.average_meter import AverageMeter
-from utils.vocab_utils import build_vocab
-import utils.train_utils
-
+from scripts.data_loader.lmdb_data_loader_new import *
+from scripts.model.pose_diffusion import PoseDiffusion
+from scripts.parse_args_diffusion import parse_args
+from scripts.train_eval.train_diffusion import train_iter_diffusion
+from scripts.utils.average_meter import AverageMeter
+from scripts.utils.vocab_utils import build_vocab
+from scripts.utils import train_utils
+from tqdm import tqdm
 matplotlib.use('Agg')  # we don't use interactive GUI
 [sys.path.append(i) for i in ['.', '..']]
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0")
 
 
 def init_model(args, _device):
@@ -47,7 +47,7 @@ def train_epochs(args, train_data_loader, lang_model, pose_dim, speaker_model=No
 
     # training
     global_iter = 0
-    for epoch in range(args.epochs):
+    for epoch in tqdm(range(args.epochs)):
 
         # save model
         if (epoch % save_model_epoch_interval == 0 and epoch > 0) or epoch == args.epochs - 1:
@@ -56,7 +56,7 @@ def train_epochs(args, train_data_loader, lang_model, pose_dim, speaker_model=No
 
             save_name = '{}/{}_checkpoint_{:03d}.bin'.format(args.model_save_path, args.name, epoch)
 
-            utils.train_utils.save_checkpoint({
+            train_utils.save_checkpoint({
                 'args': args, 'epoch': epoch, 'lang_model': lang_model, 'speaker_model': speaker_model,
                 'pose_dim': pose_dim, 'state_dict': state_dict,
             }, save_name)
@@ -73,8 +73,9 @@ def train_epochs(args, train_data_loader, lang_model, pose_dim, speaker_model=No
 
             # train
             loss = []
+
             if args.model == 'pose_diffusion':
-                loss = train_iter_diffusion(args, in_audio, target_vec, 
+                loss = train_iter_diffusion(args, in_audio, target_vec,
                                       diffusion_model, optimizer)
 
             # loss values
@@ -90,7 +91,7 @@ def train_epochs(args, train_data_loader, lang_model, pose_dim, speaker_model=No
             # print training status
             if (iter_idx + 1) % print_interval == 0:
                 print_summary = 'EP {} ({:3d}) | {:>8s}, {:.0f} samples/s | '.format(
-                    epoch, iter_idx + 1, utils.train_utils.time_since(start),
+                    epoch, iter_idx + 1, train_utils.time_since(start),
                     batch_size / (time.time() - iter_start_time))
                 for loss_meter in loss_meters:
                     if loss_meter.count > 0:
@@ -102,16 +103,15 @@ def train_epochs(args, train_data_loader, lang_model, pose_dim, speaker_model=No
 
     tb_writer.close()
 
-
 def main(config):
     args = config['args']
 
     # random seed
     if args.random_seed >= 0:
-        utils.train_utils.set_random_seed(args.random_seed)
+        train_utils.set_random_seed(args.random_seed)
 
     # set logger
-    utils.train_utils.set_logger(args.model_save_path, os.path.basename(__file__).replace('.py', '.log'))
+    train_utils.set_logger(args.model_save_path, os.path.basename(__file__).replace('.py', '.log'))
 
     logging.info("PyTorch version: {}".format(torch.__version__))
     logging.info("CUDA version: {}".format(torch.version.cuda))
@@ -119,51 +119,30 @@ def main(config):
     logging.info(pprint.pformat(vars(args)))
 
     collate_fn = default_collate_fn
-
-    # dataset
-    mean_dir_vec = np.array(args.mean_dir_vec).reshape(-1, 3)
-    train_dataset = SpeechMotionDataset(args.train_data_path[0],
-                                        n_poses=args.n_poses,
-                                        subdivision_stride=args.subdivision_stride,
-                                        pose_resampling_fps=args.motion_resampling_framerate,
-                                        mean_dir_vec=mean_dir_vec,
-                                        mean_pose=args.mean_pose,
-                                        remove_word_timing=(args.input_context == 'text')
-                                        )
+    
+    # Use LMDB-based dataset for faster data loading
+    logging.info("Creating training dataset...")
+    train_dataset = LMDBDataset(dataset_path="./data/beat_english_v0.2.1/beat_all_cache")
+    
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size,
                               shuffle=True, drop_last=True, num_workers=args.loader_workers, pin_memory=True,
-                              collate_fn=collate_fn
-                              )
+        collate_fn=collate_fn
+    )
+    
+    logging.info("Creating validation dataset...")
+    val_dataset = LMDBDataset(dataset_path="./data/beat_english_v0.2.1/beat_all_test_cache")
+    
+    logging.info("Creating test dataset...")
+    test_dataset = LMDBDataset(dataset_path="./data/beat_english_v0.2.1/beat_all_test_cache")
 
-    val_dataset = SpeechMotionDataset(args.val_data_path[0],
-                                      n_poses=args.n_poses,
-                                      subdivision_stride=args.subdivision_stride,
-                                      pose_resampling_fps=args.motion_resampling_framerate,
-                                      speaker_model=train_dataset.speaker_model,
-                                      mean_dir_vec=mean_dir_vec,
-                                      mean_pose=args.mean_pose,
-                                      remove_word_timing=(args.input_context == 'text')
-                                      )
-
-    test_dataset = SpeechMotionDataset(args.test_data_path[0],
-                                       n_poses=args.n_poses,
-                                       subdivision_stride=args.subdivision_stride,
-                                       pose_resampling_fps=args.motion_resampling_framerate,
-                                       speaker_model=train_dataset.speaker_model,
-                                       mean_dir_vec=mean_dir_vec,
-                                       mean_pose=args.mean_pose)
-
-    # build vocab
-    vocab_cache_path = os.path.join(os.path.split(args.train_data_path[0])[0], 'vocab_cache.pkl')
-    lang_model = build_vocab('words', [train_dataset, val_dataset, test_dataset], vocab_cache_path, args.wordembed_path,
-                             args.wordembed_dim)
-    train_dataset.set_lang_model(lang_model)
-    val_dataset.set_lang_model(lang_model)
-
-    # train
+    # No need for vocab model with Trinity dataset (we use dummy word sequences)
+    lang_model = None
+    
+    # Train the model
+    logging.info("Starting training...")
     pose_dim = args.pose_dim
     train_epochs(args, train_loader, lang_model,
-                 pose_dim=pose_dim, speaker_model=train_dataset.speaker_model)
+                 pose_dim=pose_dim, speaker_model=None)
 
 
 if __name__ == '__main__':

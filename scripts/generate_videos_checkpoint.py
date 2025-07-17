@@ -253,12 +253,13 @@ def load_checkpoint_and_model(checkpoint_path, _device='cpu'):
     checkpoint = torch.load(checkpoint_path, map_location=_device)
     args = checkpoint['args']
     epoch = checkpoint['epoch']
-    lang_model = checkpoint['lang_model']
-    speaker_model = checkpoint['speaker_model']
-    pose_dim = checkpoint['pose_dim']
+
+    # pose_dim = checkpoint['pose_dim']
+    pose_dim = checkpoint['new_pose_dim']
     print('epoch {}'.format(epoch))
 
     print("init diffusion model")
+    args.pose_dim = pose_dim
     diffusion = PoseDiffusion(args).to(_device)
 
     diffusion.load_state_dict(checkpoint['state_dict'])
@@ -266,21 +267,14 @@ def load_checkpoint_and_model(checkpoint_path, _device='cpu'):
     # Set model to evaluation mode
     diffusion.eval()
 
-    return args, diffusion, lang_model, speaker_model, pose_dim
+    return args, diffusion, pose_dim
     
 def main():
     # Setup the dataset
-    from data_loader.lmdb_data_loader_trinity import TrinityDataset,TrinityLMDBDataset
+    from scripts.data_loader.lmdb_data_loader_new import LMDBDataset
     
-    dataset = TrinityDataset(
-        data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec',
-        audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRecAudio',
-        n_poses=34,
-        n_pre_poses=4,
-        original_fps=60,
-        target_fps=15,
-        subdivision_stride=10
-    )
+    dataset = LMDBDataset(dataset_path="./data/beat_english_v0.2.1/beat_all_cache")
+    dataset = LMDBDataset(dataset_path="/home/bsd/cospeech/DiffGesture/data/trinity_all_cache")
     # dataset = TrinityLMDBDataset(
     #     data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestMotion',
     #     audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestAudio',
@@ -291,7 +285,8 @@ def main():
     # )
     
     # Load connections from a sample NPZ file
-    sample_npz = "/home/bsd/cospeech/DiffGesture/data/trinity/allRec/Recording_001_direction_vectors.npz"
+    sample_npz = "/home/bsd/cospeech/DiffGesture/data/beat_english_v0.2.1/1/1_wayne_0_1_1_direction_vectors.npz"
+    sample_npz = "/home/bsd/cospeech/DiffGesture/data/trinity/allTestMotion/TestSeq001_direction_vectors.npz"
     data = np.load(sample_npz, allow_pickle=True)
     connections = data['connections'].tolist()  # Convert to Python list if it's a NumPy array
     #connection covert  to int
@@ -304,56 +299,63 @@ def main():
     print(f"Loaded {len(connections)} connections")
     if len(connections) > 0:
         print(f"First connection: {connections[0]}")
-    
     # Get sample from dataset
-    sample_idx = 800
-    sample = dataset[sample_idx]
+    sample_idx = [len(dataset)//10,len(dataset)//10*9,len(dataset)//10*2,len(dataset)//10*3,len(dataset)//10*4,len(dataset)//10*5,len(dataset)//10*6,len(dataset)//10*7,len(dataset)//10*8]
     
-    # Print info about the sample
-    word_seq, extended_word_seq, pose_seq, vec_seq, audio, spectrogram, aux_info = sample
-    print(f"Sample pose shape: {pose_seq.shape}")
-    print(f"Sample vec_seq shape: {vec_seq.shape}")
-    print(f"Sample audio shape: {audio.shape}")
-    print(f"Aux info: {aux_info}")
-    vec_seq = vec_seq.numpy()
-    vec_seq = vec_seq.reshape(vec_seq.shape[0], -1, 3)
-    # Visualize the reconstructed skeleton
-    visualize_direction_vectors(joint_positions, vec_seq, connections, frame_idx=4)
-    save_mp4(vec_seq, connections, output_path='animation_original.mp4', fps=15, audio_tensor=audio)
-    mean_dir_vec = np.load('/home/bsd/cospeech/DiffGesture/data/trinity/mean_dir_vec.npy')
+    
+    
+    mean_dir_vec = np.load('/home/bsd/cospeech/DiffGesture/data/beat_all_mean_dir_vec.npy')
+    mean_dir_vec = np.load('/home/bsd/cospeech/DiffGesture/data/trinity_all_mean_dir_vec.npy')
     # Load the checkpoint using the new function
-    for epoch in ["029","050","100","150","200","250","299"]:
-        checkpoint_path = f"/home/bsd/cospeech/DiffGesture/output/train_diffusion_trinity/pose_diffusion_trinity_checkpoint_{epoch}.bin"
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Use the new loading function
-        args, model, lang_model, speaker_model, pose_dim = load_checkpoint_and_model(checkpoint_path, device)
-        
-        # Create the model
-        with torch.no_grad():
-            # Update to include the correct parameters based on the error message
-            # The error says: "sample() missing 1 required positional argument: 'in_audio'"
-            # Let's add the missing parameter and adapt parameters to match method signature
-            pre_seq = torch.zeros((1, 34, pose_dim + 1), device=device)
-            # Add audio as in_audio parameter - use clone().detach() as recommended in the warning
-            in_audio = audio.clone().detach().unsqueeze(0).to(device).float()
-            generated_motion = model.sample(pose_dim, pre_seq, in_audio)
-            # Convert from torch tensor to numpy and reshape if needed
-            generated_motion = generated_motion.cpu().numpy()
-            generated_motion = generated_motion + mean_dir_vec
-            print(f"Generated motion shape: {generated_motion[0].shape}")
+    for id in sample_idx:
+        sample = dataset[id]
+        # Print info about the sample
+        word_seq, extended_word_seq, pose_seq, vec_seq, audio, spectrogram, aux_info = sample
+        print(f"Sample pose shape: {pose_seq.shape}")
+        print(f"Sample vec_seq shape: {vec_seq.shape}")
+        print(f"Sample audio shape: {audio.shape}")
+        print(f"Aux info: {aux_info}")
+        vec_seq = vec_seq.numpy()
+        vec_seq = vec_seq + mean_dir_vec
+        vec_seq = vec_seq.reshape(vec_seq.shape[0], -1, 3)
         
         # Visualize the reconstructed skeleton
-        # Use frame_idx=0 if generated_motion only has one frame, or reshape if needed
-        # The error indicates we're trying to access index 4 out of bounds
-        if generated_motion.shape[0] == 1:
-            # If generated_motion is [1, connections, 3], we need to reshape or use frame_idx=0
-            visualize_direction_vectors(joint_positions, generated_motion[0].reshape(vec_seq.shape[0], -1, 3), connections, frame_idx=0)
-            save_mp4(generated_motion[0].reshape(vec_seq.shape[0], -1, 3), connections, output_path=f'animation_generated_{epoch}.mp4', fps=15, audio_tensor=audio)
-        else:
-            visualize_direction_vectors(joint_positions, generated_motion, connections, frame_idx=min(4, generated_motion.shape[0]-1))
-            save_mp4(generated_motion, connections, output_path=f'animation_generated_{epoch}.mp4', fps=15, audio_tensor=audio)
-    
-    
+        # visualize_direction_vectors(joint_positions, vec_seq, connections, frame_idx=4)
+        save_mp4(vec_seq, connections, output_path=f'animation_original_{id}.mp4', fps=15, audio_tensor=audio)
+        for epoch in ["best"]:
+            checkpoint_path = f"/home/bsd/cospeech/DiffGesture/output/train_diffusion_trinity/pose_diffusion_trinity_checkpoint_{epoch}.bin"
+            checkpoint_path = "/home/bsd/cospeech/DiffGesture/output/finetune_tedbeattrinity/checkpoint_epoch_100.pt"
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            
+            # Use the new loading function
+            args, model, pose_dim = load_checkpoint_and_model(checkpoint_path, device)
+            
+            # Create the model
+            with torch.no_grad():
+                # Update to include the correct parameters based on the error message
+                # The error says: "sample() missing 1 required positional argument: 'in_audio'"
+                # Let's add the missing parameter and adapt parameters to match method signature
+                pre_seq = torch.zeros((1, 34, pose_dim + 1), device=device)
+                # Add audio as in_audio parameter - use clone().detach() as recommended in the warning
+                in_audio = audio.clone().detach().unsqueeze(0).to(device).float()
+                print("start sampling")
+                generated_motion = model.sample(pose_dim, pre_seq, in_audio)
+                # Convert from torch tensor to numpy and reshape if needed
+                generated_motion = generated_motion.cpu().numpy()
+                generated_motion = generated_motion + mean_dir_vec
+                print(f"Generated motion shape: {generated_motion[0].shape}")
+            
+            # Visualize the reconstructed skeleton
+            # Use frame_idx=0 if generated_motion only has one frame, or reshape if needed
+            # The error indicates we're trying to access index 4 out of bounds
+            if generated_motion.shape[0] == 1:
+                # If generated_motion is [1, connections, 3], we need to reshape or use frame_idx=0
+                visualize_direction_vectors(joint_positions, generated_motion[0].reshape(vec_seq.shape[0], -1, 3), connections, frame_idx=0)
+                save_mp4(generated_motion[0].reshape(vec_seq.shape[0], -1, 3), connections, output_path=f'animation_generated_beat_{epoch}_{id}.mp4', fps=15, audio_tensor=audio)
+            else:
+                visualize_direction_vectors(joint_positions, generated_motion, connections, frame_idx=min(4, generated_motion.shape[0]-1))
+                save_mp4(generated_motion, connections, output_path=f'animation_generated_beat_linear_{epoch}_{id}.mp4', fps=15, audio_tensor=audio)
+
+
 if __name__ == "__main__":
     main()

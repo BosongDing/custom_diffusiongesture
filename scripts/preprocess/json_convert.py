@@ -434,7 +434,7 @@ def main():
     parser.add_argument('--check_consistency', default=True, action='store_true', help='Check bone length consistency across frames')
     
     args = parser.parse_args()
-    args.input = "/home/bsd/cospeech/DiffGesture/data/quest/voice_20250427_143848_motion_0.json"
+    # args.input = "/home/bsd/cospeech/DiffGesture/data/quest/voice_20250427_143848_motion_0.json"
     
     if os.path.isdir(args.input):
         # Process directory

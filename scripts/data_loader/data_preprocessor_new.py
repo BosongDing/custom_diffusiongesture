@@ -9,7 +9,7 @@ import librosa
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
-import utils.data_utils_expressive
+import scripts.utils.data_utils_expressive as utils
 
 def custom_serialize(data):
     """Convert numpy arrays to lists before serialization"""
@@ -67,11 +67,11 @@ def calc_spectrogram_length_from_motion_length(n_frames, fps):
     ret = (n_frames / fps * 16000 - 1024) / 512 + 1
     return int(round(ret))
 
-class TrinityDataPreprocessor:
-    def __init__(self, data_dir, audio_dir, out_lmdb_dir, n_poses, subdivision_stride,
+class DataPreprocessor:
+    def __init__(self, data_path_list, audio_path_list, out_lmdb_dir, n_poses, subdivision_stride,
                  original_fps, target_fps, mean_dir_vec=None):
-        self.data_dir = data_dir
-        self.audio_dir = audio_dir
+        self.data_path_list = data_path_list
+        self.audio_path_list = audio_path_list
         self.out_lmdb_dir = out_lmdb_dir
         self.n_poses = n_poses
         self.subdivision_stride = subdivision_stride
@@ -80,22 +80,21 @@ class TrinityDataPreprocessor:
         self.mean_dir_vec = mean_dir_vec
         
         # Get all NPZ files
-        self.npz_files = [f for f in os.listdir(data_dir) if f.endswith('_direction_vectors.npz')]
-        print(f"Found {len(self.npz_files)} sequences")
+        print(f"Found {len(self.data_path_list)} sequences")
         
         self.expected_audio_length = int(n_poses / target_fps * 16000)
         self.expected_spectrogram_length = calc_spectrogram_length_from_motion_length(n_poses, target_fps)
         
         # Create lmdb environment
-        map_size = 1024 * 200  # in MB
+        map_size = 1024 * 2000  # in MB (increased from 200 to 2000 MB)
         map_size <<= 20  # in B
         self.lmdb_env = lmdb.open(out_lmdb_dir, map_size=map_size)
         self.n_out_samples = 0
 
     def run(self):
         """Process all files and create LMDB database"""
-        for npz_file in tqdm(self.npz_files, desc="Processing files"):
-            self._process_file(npz_file)
+        for npz_file_path, audio_file_path in tqdm(zip(self.data_path_list, self.audio_path_list), total=len(self.data_path_list), desc="Processing files"):
+            self._process_file(npz_file_path, audio_file_path)
         
         # Print stats
         with self.lmdb_env.begin() as txn:
@@ -105,18 +104,17 @@ class TrinityDataPreprocessor:
         self.lmdb_env.sync()
         self.lmdb_env.close()
         
-    def _process_file(self, npz_file):
+    def _process_file(self, npz_file_path, audio_file_path):
         """Process a single NPZ file and add samples to LMDB"""
-        base_name = npz_file.replace('_direction_vectors.npz', '')
+        base_name = npz_file_path.replace('_direction_vectors.npz', '')
         
         # Load direction vectors
-        npz_path = os.path.join(self.data_dir, npz_file)
-        data = np.load(npz_path)
-        print(npz_path)
+        data = np.load(npz_file_path)
+        print(npz_file_path)
         dir_vectors = data['direction_vectors']  # Shape: (frames, connections, 3)
         
         # Load audio
-        audio_path = os.path.join(self.audio_dir, f"{base_name}.wav")
+        audio_path = audio_file_path
         try:
             audio, sr = librosa.load(audio_path, sr=16000)  # Resample to 16kHz
         except Exception as e:
@@ -229,32 +227,32 @@ class TrinityDataPreprocessor:
                     print(f"Types: {[type(x) for x in v]}")
                     print(f"Shapes: motion {segment_vectors.shape}, dir_vec {flat_vectors.shape}, audio {audio_segment.shape}, spec {spectrogram.shape}")
 
-if __name__ == "__main__":
-    # Example usage
-    mean_dir_vec = np.load('/home/bsd/cospeech/DiffGesture/data/trinity/mean_dir_vec.npy')
+# if __name__ == "__main__":
+#     # Example usage
+#     mean_dir_vec = np.load('/home/bsd/cospeech/DiffGesture/data/trinity/mean_dir_vec.npy')
     
-    # Create cache for training data
-    preprocessor = TrinityDataPreprocessor(
-        data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec',
-        audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRecAudio',
-        out_lmdb_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec_cache',
-        n_poses=34,
-        subdivision_stride=10,
-        original_fps=60,
-        target_fps=15,
-        mean_dir_vec=mean_dir_vec
-    )
-    preprocessor.run()
+#     # Create cache for training data
+#     preprocessor = DataPreprocessor(
+#         data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec',
+#         audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRecAudio',
+#         out_lmdb_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec_cache',
+#         n_poses=34,
+#         subdivision_stride=10,
+#         original_fps=60,
+#         target_fps=15,
+#         mean_dir_vec=mean_dir_vec
+#     )
+#     preprocessor.run()
     
-    # Create cache for test data
-    preprocessor = TrinityDataPreprocessor(
-        data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestMotion',
-        audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestAudio',
-        out_lmdb_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestMotion_cache',
-        n_poses=34,
-        subdivision_stride=10,
-        original_fps=60,
-        target_fps=15,
-        mean_dir_vec=mean_dir_vec
-    )
-    preprocessor.run()
+#     # Create cache for test data
+#     preprocessor = DataPreprocessor(
+#         data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestMotion',
+#         audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestAudio',
+#         out_lmdb_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allTestMotion_cache',
+#         n_poses=34,
+#         subdivision_stride=10,
+#         original_fps=60,
+#         target_fps=15,
+#         mean_dir_vec=mean_dir_vec
+#     )
+#     preprocessor.run()

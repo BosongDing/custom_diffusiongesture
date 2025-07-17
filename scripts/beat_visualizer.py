@@ -248,7 +248,7 @@ def save_mp4(dir_vectors, connections, output_path='animation.mp4', fps=15, audi
     
 def main():
     # Setup the dataset
-    from data_loader.lmdb_data_loader_trinity import TrinityDataset,TrinityLMDBDataset
+    from DiffGesture.scripts.data_loader.lmdb_data_loader_new import TrinityDataset,TrinityLMDBDataset
     
     # dataset = TrinityDataset(
     #     data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec',

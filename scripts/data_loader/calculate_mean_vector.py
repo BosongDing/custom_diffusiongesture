@@ -1,8 +1,8 @@
 import os
 import numpy as np
-from lmdb_data_loader_trinity import *
+from scripts.data_loader.lmdb_data_loader_new import *
 
-def calculate_mean_dir_vec(data_dir,data_dir2, original_fps=60, target_fps=15, n_samples=100):
+def calculate_mean_dir_vec(npz_files, original_fps=60, target_fps=15, n_samples=1000):
     """
     Calculate the mean direction vector from a subset of the data
     
@@ -15,8 +15,6 @@ def calculate_mean_dir_vec(data_dir,data_dir2, original_fps=60, target_fps=15, n
     Returns:
         numpy.ndarray: Mean direction vector
     """
-    npz_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('_direction_vectors.npz')]
-    npz_files += [os.path.join(data_dir2, f) for f in os.listdir(data_dir2) if f.endswith('_direction_vectors.npz')]
     print(f"Found {len(npz_files)} NPZ files")
     # Randomly sample files if there are many
     import random

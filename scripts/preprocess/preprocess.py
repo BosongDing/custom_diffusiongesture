@@ -7,9 +7,9 @@ import os
 huggingface_token = os.environ.get("HUGGINGFACE_TOKEN")
 pipeline = Pipeline.from_pretrained("pyannote/voice-activity-detection",
                                     use_auth_token=huggingface_token)
-file_path = "/home/bsd/cospeech/DiffGesture/data/quest/voice_20250427_143848.wav"
+file_path = "/home/bsd/cospeech/DiffGesture/data/quest/dataset/voice_20250511_173952.wav"
 output = pipeline(file_path)
-motion_data = json.load(open("/home/bsd/cospeech/DiffGesture/data/quest/AvatarMotionData_20250427_143848.json"))
+motion_data = json.load(open("/home/bsd/cospeech/DiffGesture/data/quest/dataset/AvatarMotionData_20250511_173952.json"))
 motion_data = motion_data["frames"]
 time_data = []
 for frame in motion_data:

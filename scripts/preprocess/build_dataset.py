@@ -3,11 +3,21 @@ import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import os
+print(os.getcwd())
 import tempfile
 import subprocess
 import librosa
 import soundfile as sf
+import sys
 
+# Add project root to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, "../.."))
+sys.path.insert(0, project_root)
+
+from scripts.data_loader.lmdb_data_loader_new import LMDBDataset
+from scripts.data_loader.calculate_mean_vector import calculate_mean_dir_vec
+import argparse
 def visualize_direction_vectors(joint_positions, dir_vectors, connections, frame_idx=3):
     """
     Visualize direction vectors for a given frame
@@ -245,30 +255,159 @@ def save_mp4(dir_vectors, connections, output_path='animation.mp4', fps=15, audi
     
     plt.close(fig)
     print(f"Animation saved to {output_path}")
-    
+def check_files(data_path_list, audio_path_list):
+    for data_path in data_path_list:
+        if not os.path.exists(data_path):
+            print(f"File {data_path} does not exist")
+            raise ValueError("File does not exist")
+    for audio_path in audio_path_list:
+        if not os.path.exists(audio_path):
+            print(f"File {audio_path} does not exist")
+            raise ValueError("File does not exist")
 def main():
-    # Setup the dataset
-    from data_loader.lmdb_data_loader_trinity import TrinityDataset,TrinityLMDBDataset
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, required=True, help="Trinity/Beat/all")
+    args = parser.parse_args()
+    #print current directory
     
-    # dataset = TrinityDataset(
-    #     data_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRec',
-    #     audio_dir='/home/bsd/cospeech/DiffGesture/data/trinity/allRecAudio',
-    #     n_poses=34,
-    #     n_pre_poses=4,
-    #     original_fps=60,
-    #     target_fps=15,
-    #     subdivision_stride=10
-    # )
-    dataset = TrinityLMDBDataset(
-        data_dir='./data/quest',
-        audio_dir='./data/quest',
-        n_poses=34,
-        original_fps=70,
-        target_fps=15
-    )
+    if args.dataset == "trinity" or args.dataset == "all":
+        train_data_dir = "./data/trinity/allRec"
+        train_audio_dir = "./data/trinity/allRecAudio"
+        train_npz_files = [f for f in os.listdir(train_data_dir) if f.endswith('_direction_vectors.npz')]
+        train_npz_list = [os.path.join(train_data_dir, f) for f in train_npz_files]
+        train_audio_list = [os.path.join(train_audio_dir, f.replace('_direction_vectors.npz', '.wav')) for f in train_npz_files]
+        test_data_dir = "./data/trinity/allTestMotion"
+        test_audio_dir = "./data/trinity/allTestAudio"
+        test_npz_files = [f for f in os.listdir(test_data_dir) if f.endswith('_direction_vectors.npz')]
+        test_npz_list = [os.path.join(test_data_dir, f) for f in test_npz_files]
+        test_audio_list = [os.path.join(test_audio_dir, f.replace('_direction_vectors.npz', '.wav')) for f in test_npz_files]
+        check_files(train_npz_list, train_audio_list)
+        check_files(test_npz_list, test_audio_list)
+        all_npz_list = train_npz_list + test_npz_list
+        mean_dir_vec = calculate_mean_dir_vec(all_npz_list, original_fps=60, target_fps=15, n_samples=1000)
+        np.save("./data/trinity_all_mean_dir_vec.npy", mean_dir_vec)
+        dataset = LMDBDataset(
+            dataset_name="trinity_all",
+            data_path_list=train_npz_list,
+            audio_path_list=train_audio_list,
+            n_poses=34,
+            original_fps=60,
+            target_fps=15,
+            mean_dir_vec=mean_dir_vec
+        )
+        test_dataset = LMDBDataset(
+            dataset_name="trinity_all_test",
+            data_path_list=test_npz_list,
+            audio_path_list=test_audio_list,
+            n_poses=34,
+            original_fps=60,
+            target_fps=15,
+            mean_dir_vec=mean_dir_vec
+        )
+        sample_npz = train_npz_list[0]
+    if args.dataset == "beat_all" or args.dataset == "all":
+        original_data_dir = "./data/beat_english_v0.2.1"
+        train_data_dir = []
+        for i in range(1,27):
+            train_data_dir.append(original_data_dir + "/"+str(i))
+        train_npz_list = []
+        train_audio_list = []
+        for data_dir in train_data_dir:
+            for f in os.listdir(data_dir):
+                if f.endswith('_direction_vectors.npz'):
+                    train_npz_list.append(os.path.join(data_dir, f))
+                    train_audio_list.append(os.path.join(data_dir, f.replace('_direction_vectors.npz', '.wav')))
+        test_data_dir = []
+        for i in [27,28,29,30]:
+            test_data_dir.append(original_data_dir + "/"+str(i))
+        test_npz_list = []
+        test_audio_list = []
+        for data_dir in test_data_dir:
+            for f in os.listdir(data_dir):
+                if f.endswith('_direction_vectors.npz'):
+                    test_npz_list.append(os.path.join(data_dir, f))
+                    test_audio_list.append(os.path.join(data_dir, f.replace('_direction_vectors.npz', '.wav')))
+        check_files(train_npz_list, train_audio_list)
+        check_files(test_npz_list, test_audio_list)
+        all_npz_list = train_npz_list + test_npz_list
+        mean_dir_vec = calculate_mean_dir_vec(all_npz_list, original_fps=120, target_fps=15, n_samples=1500)
+        np.save("./data/beat_all_mean_dir_vec.npy", mean_dir_vec)
+        dataset = LMDBDataset(
+            dataset_name="beat_all",
+            data_path_list=train_npz_list,
+            audio_path_list=train_audio_list,
+            n_poses=34,
+            original_fps=120,
+            target_fps=15,
+            mean_dir_vec=mean_dir_vec
+        )
+        test_dataset = LMDBDataset(
+            dataset_name="beat_all_test",
+            data_path_list=test_npz_list,
+            audio_path_list=test_audio_list,
+            n_poses=34,
+            original_fps=120,
+            target_fps=15,
+            mean_dir_vec=mean_dir_vec
+        )
+        sample_npz = train_npz_list[0]
+    if args.dataset == "beat_warmup" or args.dataset == "all":
+        original_data_dir = "./data/beat_english_v0.2.1"
+        train_data_dir = []
+        for i in range(12,20):
+            train_data_dir.append(original_data_dir + "/"+str(i))
+        train_npz_list = []
+        train_audio_list = []
+        for data_dir in train_data_dir:
+            for f in os.listdir(data_dir):
+                if f.endswith('_direction_vectors.npz'):
+                    train_npz_list.append(os.path.join(data_dir, f))
+                    train_audio_list.append(os.path.join(data_dir, f.replace('_direction_vectors.npz', '.wav')))
+        
+        check_files(train_npz_list, train_audio_list)
+        mean_dir_vec = np.load("./data/beat_all_mean_dir_vec.npy")
+        np.save("./data/beat_all_mean_dir_vec.npy", mean_dir_vec)
+        dataset = LMDBDataset(
+            dataset_name="beat_warmup",
+            data_path_list=train_npz_list,
+            audio_path_list=train_audio_list,
+            n_poses=34,
+            original_fps=120,
+            target_fps=15,
+            mean_dir_vec=mean_dir_vec
+        )
+        sample_npz = train_npz_list[0]
     
+    if args.dataset == "beat_separated" or args.dataset == "all":
+        for train_data_dir in os.listdir("./data/beat_english_v0.2.1"):
+            if not train_data_dir.isdigit():
+                continue
+            dataset_name = str(int(train_data_dir))
+            train_data_dir = os.path.join("./data/beat_english_v0.2.1", train_data_dir)
+            train_npz_files = [f for f in os.listdir(train_data_dir) if f.endswith('_direction_vectors.npz')]
+            train_npz_list = [os.path.join(train_data_dir, f) for f in train_npz_files]
+            train_audio_list = [f.replace('_direction_vectors.npz', '.wav') for f in train_npz_list]
+            check_files(train_npz_list, train_audio_list)
+            mean_dir_vec = np.load("./data/beat_all_mean_dir_vec.npy")
+            dataset = LMDBDataset(
+                dataset_name=dataset_name,
+                data_path_list=train_npz_list,
+                audio_path_list=train_audio_list,
+                n_poses=34,
+                original_fps=120,
+                target_fps=15,
+                mean_dir_vec=mean_dir_vec
+            )
+        sample_npz = train_npz_list[30]
+    # elif args.dataset == "quest" or args.dataset == "all":
+    #     dataset = LMDBDataset(
+    #         data_dir="./data/quest",
+    #         audio_dir="./data/quest",
+    #         n_poses=34,
+    #         original_fps=70,
+    #         target_fps=15
+    #     )
     # Load connections from a sample NPZ file
-    sample_npz = "/home/bsd/cospeech/DiffGesture/data/quest/voice_20250427_143848_motion_0_direction_vectors.npz"
     data = np.load(sample_npz, allow_pickle=True)
     connections = data['connections'].tolist()  # Convert to Python list if it's a NumPy array
     #connection covert  to int
@@ -283,7 +422,7 @@ def main():
         print(f"First connection: {connections[0]}")
     
     # Get sample from dataset
-    sample_idx = 7
+    sample_idx = 4000
     sample = dataset[sample_idx]
     
     # Print info about the sample
@@ -292,7 +431,7 @@ def main():
     print(f"Sample vec_seq shape: {vec_seq.shape}")
     print(f"Sample audio shape: {audio.shape}")
     print(f"Aux info: {aux_info}")
-    vec_seq = vec_seq.numpy()
+    vec_seq = vec_seq.numpy() + mean_dir_vec
     print(f"vec_seq shape: {vec_seq.shape}")
     vec_seq = vec_seq.reshape(vec_seq.shape[0], -1, 3)
     print(f"vec_seq shape: {vec_seq.shape}")
