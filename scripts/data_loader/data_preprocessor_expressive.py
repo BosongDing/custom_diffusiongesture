@@ -88,7 +88,7 @@ class DataPreprocessor:
                             n_filtered_out[type] += filtered_result[type]
                     except Exception as e:
                         print(f"Error processing clip {vid}, {clip_idx}: {e}")
-                        continue
+                        break
                         
         except Exception as e:
             print(f"Error in run method: {e}")
@@ -232,8 +232,8 @@ class DataPreprocessor:
                         self.n_out_samples += 1
                     except Exception as e:
                         print(f"Serialization error: {e}")
-                        print(f"Types: {[type(x) for x in v]}")
-                        print(f"Shapes: poses {poses.shape}, dir_vec {normalized_dir_vec.shape}, audio {audio.shape}, spec {spectrogram.shape}")
+                        # print(f"Types: {[type(x) for x in v]}")
+                        # print(f"Shapes: poses {poses.shape}, dir_vec {normalized_dir_vec.shape}, audio {audio.shape}, spec {spectrogram.shape}")
                 
                 # Commit the transaction only once after all items are processed
                 txn.commit()

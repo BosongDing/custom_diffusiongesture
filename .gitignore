@@ -1,6 +1,7 @@
 *.pyc
 data/
 output/
+videos/
 events*
 *.log
 *.mp4

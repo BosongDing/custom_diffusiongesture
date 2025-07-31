@@ -13,7 +13,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```
 1. first you can verify the BVH files contain correct data by visualizing it directly:
 ```bash
-python bvh_player.py --bvh <path_to_your_bvh_file> --audio <path_to_your_audio_file>
+python scripts/preprocess/bvh_player.py --bvh <path_to_your_bvh_file> --audio <path_to_your_audio_file>
 ```
 2. then we need to convert BVH files into correct direction vector format. here we have 3 options for --dataset trinity/beat/all
 ```bash
