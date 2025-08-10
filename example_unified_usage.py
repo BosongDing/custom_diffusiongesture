@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Example script showing how to use the unified dataset for training
-This demonstrates the basic usage patterns without actual training
-"""
 
 import os
 import sys
@@ -12,260 +8,175 @@ from torch.utils.data import DataLoader
 # Add the scripts directory to Python path
 sys.path.append('scripts')
 
+# Import the unified dataloader
 from scripts.data_loader.unified_data_loader import (
-    create_unified_dataset, 
-    unified_collate_fn
+    UnifiedMotionDataset, 
+    unified_collate_fn, 
+    create_unified_dataset
 )
 
-def basic_unified_dataset_example():
-    """Basic example of creating and using a unified dataset"""
-    print("="*50)
-    print("BASIC UNIFIED DATASET EXAMPLE")
-    print("="*50)
-    
-    # Create unified dataset with available datasets
-    # Update these paths to match your actual dataset locations
-    unified_dataset = create_unified_dataset(
-        trinity_path="./data/trinity_all_cache" if os.path.exists("./data/trinity_all_cache") else None,
-        beat_path="./data/beat_english_v0.2.1/beat_all_cache" if os.path.exists("./data/beat_english_v0.2.1/beat_all_cache") else None,
-        # ted_expressive_path="./data/ted_expressive_dataset/train" if os.path.exists("./data/ted_expressive_dataset/train") else None
-    )
-    
-    print(f"Created unified dataset with {len(unified_dataset)} samples")
-    
-    # Get dataset information
-    info = unified_dataset.get_dataset_info()
-    print("\nDataset composition:")
-    for name, stats in info['datasets'].items():
-        print(f"  {name}: {stats['count']} samples (dim: {stats['pose_dim']})")
-    
-    # Create dataloader
-    dataloader = DataLoader(
-        unified_dataset,
-        batch_size=16,
-        shuffle=True,
-        collate_fn=unified_collate_fn,
-        num_workers=0
-    )
-    
-    print(f"\nCreated DataLoader with batch_size=16")
-    
-    # Iterate through a few batches
-    for batch_idx, batch_dict in enumerate(dataloader):
-        print(f"\nBatch {batch_idx + 1}:")
-        print(f"  Contains datasets: {list(batch_dict.keys())}")
-        
-        # Process each dataset in the batch separately
-        for dataset_name, dataset_batch in batch_dict.items():
-            pose_seqs = dataset_batch['pose_seqs']
-            vec_seqs = dataset_batch['vec_seqs']
-            audios = dataset_batch['audios']
-            batch_size = dataset_batch['batch_size']
-            
-            print(f"  {dataset_name}:")
-            print(f"    Batch size: {batch_size}")
-            print(f"    Pose shape: {pose_seqs.shape}")
-            print(f"    Vec shape: {vec_seqs.shape}")
-            print(f"    Audio shape: {audios.shape}")
-            
-            # Here you would route each dataset to its appropriate encoder
-            # Example: trinity_output = trinity_encoder(pose_seqs, audios)
-            
-        if batch_idx >= 2:  # Just show first 3 batches
-            break
-
-def filtered_dataset_example():
-    """Example of using dataset filtering"""
-    print("\n" + "="*50)
-    print("FILTERED DATASET EXAMPLE")
-    print("="*50)
-    
-    # Create unified dataset
-    unified_dataset = create_unified_dataset(
-        trinity_path="./data/trinity_all_cache" if os.path.exists("./data/trinity_all_cache") else None,
-        beat_path="./data/beat_english_v0.2.1/beat_all_cache" if os.path.exists("./data/beat_english_v0.2.1/beat_all_cache") else None,
-    )
-    
-    info = unified_dataset.get_dataset_info()
-    available_datasets = list(info['datasets'].keys())
-    
-    print(f"Available datasets: {available_datasets}")
-    
-    # Example 1: Train on only Trinity data
-    if 'trinity' in available_datasets:
-        trinity_only = unified_dataset.filter_by_dataset('trinity')
-        print(f"\nTrinity-only dataset: {len(trinity_only)} samples")
-        
-        # Create dataloader for Trinity only
-        trinity_loader = DataLoader(
-            trinity_only,
-            batch_size=8,
-            shuffle=True,
-            collate_fn=unified_collate_fn
-        )
-        
-        # Test one batch
-        batch = next(iter(trinity_loader))
-        print(f"Trinity batch contains: {list(batch.keys())}")
-    
-    # Example 2: Train on multiple specific datasets
-    if len(available_datasets) > 1:
-        subset_datasets = available_datasets[:2]  # First two available
-        multi_dataset = unified_dataset.filter_by_dataset(subset_datasets)
-        print(f"\nMulti-dataset ({subset_datasets}): {len(multi_dataset)} samples")
-
-def training_simulation_example():
-    """Example showing how you might use this in a training loop"""
-    print("\n" + "="*50)
-    print("TRAINING SIMULATION EXAMPLE")
-    print("="*50)
-    
-    # Create unified dataset
-    unified_dataset = create_unified_dataset(
-        trinity_path="./data/trinity_all_cache" if os.path.exists("./data/trinity_all_cache") else None,
-        beat_path="./data/beat_english_v0.2.1/beat_all_cache" if os.path.exists("./data/beat_english_v0.2.1/beat_all_cache") else None,
-    )
-    
-    # Create dataloader
-    dataloader = DataLoader(
-        unified_dataset,
-        batch_size=8,
-        shuffle=True,
-        collate_fn=unified_collate_fn,
-        num_workers=0
-    )
-    
-    print("Simulating training loop...")
-    
-    # Simulate a few training steps
-    for epoch in range(2):  # Just 2 epochs for demo
-        print(f"\nEpoch {epoch + 1}:")
-        
-        epoch_loss = 0
-        for batch_idx, batch_dict in enumerate(dataloader):
-            
-            # Process each dataset type separately
-            batch_losses = {}
-            
-            for dataset_name, dataset_batch in batch_dict.items():
-                pose_seqs = dataset_batch['pose_seqs']
-                vec_seqs = dataset_batch['vec_seqs']
-                audios = dataset_batch['audios']
-                
-                # Simulate forward pass (replace with actual model)
-                # Different datasets might use different encoders/models
-                if dataset_name == 'trinity':
-                    # Use Trinity-specific processing
-                    simulated_loss = torch.randn(1).abs()  # Fake loss
-                elif dataset_name == 'beat':
-                    # Use BEAT-specific processing  
-                    simulated_loss = torch.randn(1).abs()  # Fake loss
-                elif dataset_name == 'ted_expressive':
-                    # Use TED Expressive-specific processing
-                    simulated_loss = torch.randn(1).abs()  # Fake loss
-                else:
-                    simulated_loss = torch.randn(1).abs()  # Fake loss
-                
-                batch_losses[dataset_name] = simulated_loss.item()
-            
-            # Combine losses (you might weight them differently)
-            total_loss = sum(batch_losses.values())
-            epoch_loss += total_loss
-            
-            if batch_idx % 10 == 0:  # Print every 10 batches
-                print(f"  Batch {batch_idx}: {batch_losses}, Total: {total_loss:.3f}")
-            
-            if batch_idx >= 20:  # Limit for demo
-                break
-        
-        avg_loss = epoch_loss / min(21, len(dataloader))
-        print(f"  Average loss: {avg_loss:.3f}")
-
-def dataset_statistics_example():
-    """Example showing how to analyze dataset statistics"""
-    print("\n" + "="*50)
-    print("DATASET STATISTICS EXAMPLE")
-    print("="*50)
-    
-    # Create unified dataset
-    unified_dataset = create_unified_dataset(
-        trinity_path="./data/trinity_all_cache" if os.path.exists("./data/trinity_all_cache") else None,
-        beat_path="./data/beat_english_v0.2.1/beat_all_cache" if os.path.exists("./data/beat_english_v0.2.1/beat_all_cache") else None,
-    )
-    
-    info = unified_dataset.get_dataset_info()
-    
-    print("Detailed dataset statistics:")
-    total_samples = 0
-    
-    for dataset_name, stats in info['datasets'].items():
-        count = stats['count']
-        pose_dim = stats['pose_dim']
-        total_samples += count
-        percentage = (count / info['total_samples']) * 100
-        
-        print(f"\n{dataset_name.upper()}:")
-        print(f"  Samples: {count:,} ({percentage:.1f}%)")
-        print(f"  Pose dimension: {pose_dim}")
-        print(f"  Data path: {stats['path']}")
-        
-        # Get a sample to show actual data shapes
-        dataset_indices = unified_dataset.get_samples_by_dataset(dataset_name)
-        if dataset_indices:
-            sample = unified_dataset[dataset_indices[0]]
-            pose_seq = sample[2]
-            audio = sample[4]
-            spectrogram = sample[5]
-            
-            print(f"  Sample shapes:")
-            print(f"    Pose sequence: {pose_seq.shape}")
-            print(f"    Audio: {audio.shape}")
-            print(f"    Spectrogram: {spectrogram.shape}")
-    
-    print(f"\nTOTAL: {total_samples:,} samples across {len(info['datasets'])} datasets")
-
 def main():
-    """Run all examples"""
-    print("UNIFIED DATASET USAGE EXAMPLES")
-    print("="*50)
+    """Minimal example of using the unified data loader"""
     
-    # Check if any datasets are available
-    available_paths = []
-    test_paths = [
-        "./data/trinity_all_cache",
-        "./data/beat_english_v0.2.1/beat_all_cache",
-        "./data/ted_expressive_dataset/train"
-    ]
+    print("=== Unified Data Loader Example ===")
     
-    for path in test_paths:
-        if os.path.exists(path):
-            available_paths.append(path)
-    
-    if not available_paths:
-        print("ERROR: No dataset caches found!")
-        print("Please make sure you have created dataset caches using the preprocessing scripts.")
-        print("Expected paths:")
-        for path in test_paths:
-            print(f"  {path}")
-        return
-    
-    print(f"Found {len(available_paths)} dataset(s)")
+    # Method 1: Using the convenience function (recommended)
+    print("\n1. Using create_unified_dataset() convenience function:")
     
     try:
-        # Run examples
-        basic_unified_dataset_example()
-        filtered_dataset_example()
-        training_simulation_example()
-        dataset_statistics_example()
+        # Create unified dataset with available datasets
+        unified_dataset = create_unified_dataset(
+            trinity_path="./data/trinity_all_cache" if os.path.exists("./data/trinity_all_cache") else None,
+            beat_path="./data/beat_english_v0.2.1/beat_all_cache" if os.path.exists("./data/beat_english_v0.2.1/beat_all_cache") else None,
+            ted_expressive_path="./data/ted_expressive_dataset/train" if os.path.exists("./data/ted_expressive_dataset/train") else None,
+            target_fps=15,
+            n_poses=34
+        )
         
-        print("\n" + "="*50)
-        print("ALL EXAMPLES COMPLETED SUCCESSFULLY!")
-        print("="*50)
+        print(f"✓ Successfully created unified dataset with {len(unified_dataset)} samples")
+        
+        # Print dataset composition
+        dataset_info = unified_dataset.get_dataset_info()
+        print(f"Total datasets: {dataset_info['num_datasets']}")
+        for name, info in dataset_info['datasets'].items():
+            print(f"  {name}: {info['count']} samples, dim: {info['pose_dim']}")
         
     except Exception as e:
-        print(f"\nERROR running examples: {e}")
+        print(f"✗ Failed to create unified dataset: {e}")
+        return
+    
+    # Method 2: Manual configuration (for more control)
+    print("\n2. Manual configuration example:")
+    
+    dataset_configs = []
+    
+    # Add Trinity if available
+    if os.path.exists("./data/trinity_all_cache"):
+        dataset_configs.append({
+            'name': 'trinity',
+            'path': './data/trinity_all_cache',
+            'type': 'lmdb_new',
+            'pose_dim': 129,
+            'weight': 1.0
+        })
+    
+    # Add BEAT if available
+    if os.path.exists("./data/beat_english_v0.2.1/beat_all_cache"):
+        dataset_configs.append({
+            'name': 'beat',
+            'path': './data/beat_english_v0.2.1/beat_all_cache',
+            'type': 'lmdb_new',
+            'pose_dim': 177,
+            'weight': 1.0
+        })
+    
+    # Add TED Expressive if available
+    if os.path.exists("./data/ted_expressive_dataset/train"):
+        dataset_configs.append({
+            'name': 'ted_expressive',
+            'path': './data/ted_expressive_dataset/train',
+            'type': 'lmdb_expressive',
+            'pose_dim': 126,
+            'weight': 1.0
+        })
+    
+    if dataset_configs:
+        try:
+            manual_dataset = UnifiedMotionDataset(
+                dataset_configs=dataset_configs,
+                target_fps=15,
+                n_poses=34
+            )
+            print(f"✓ Manual dataset created with {len(manual_dataset)} samples")
+        except Exception as e:
+            print(f"✗ Manual dataset creation failed: {e}")
+    
+    # 3. Creating a DataLoader
+    print("\n3. Creating DataLoader:")
+    
+    try:
+        dataloader = DataLoader(
+            unified_dataset,
+            batch_size=4,  # Small batch for demo
+            shuffle=True,
+            collate_fn=unified_collate_fn,
+            num_workers=0  # Use 0 for debugging, increase for performance
+        )
+        
+        print(f"✓ DataLoader created with batch_size=4")
+        
+        # Test loading a batch
+        print("\n4. Loading a sample batch:")
+        for batch_idx, batch in enumerate(dataloader):
+            print(f"Batch {batch_idx}:")
+            
+            # The batch is a dictionary with dataset names as keys
+            for dataset_name, dataset_batch in batch.items():
+                batch_size = dataset_batch['batch_size']
+                pose_shape = dataset_batch['pose_seqs'].shape
+                vec_shape = dataset_batch['vec_seqs'].shape
+                
+                print(f"  {dataset_name}: {batch_size} samples")
+                print(f"    pose_seqs shape: {pose_shape}")
+                print(f"    vec_seqs shape: {vec_shape}")
+                print(f"    audio shape: {dataset_batch['audios'].shape}")
+                print(f"    spectrogram shape: {dataset_batch['spectrograms'].shape}")
+            
+            # Only process first batch for demo
+            break
+            
+    except Exception as e:
+        print(f"✗ DataLoader test failed: {e}")
         import traceback
-        traceback.print_exc()
+        print(f"Error details: {traceback.format_exc()}")
+    
+    # 5. Filtering by dataset
+    print("\n5. Filtering by specific dataset:")
+    
+    try:
+        # Get only BEAT samples
+        beat_only = unified_dataset.filter_by_dataset('beat')
+        if len(beat_only) > 0:
+            print(f"✓ Filtered to BEAT only: {len(beat_only)} samples")
+            
+            # Create dataloader for BEAT only
+            beat_dataloader = DataLoader(
+                beat_only,
+                batch_size=2,
+                shuffle=False,
+                collate_fn=unified_collate_fn,
+                num_workers=0
+            )
+            
+            # Test one batch
+            for batch in beat_dataloader:
+                print(f"  BEAT batch contains {len(batch)} dataset(s)")
+                break
+        else:
+            print("No BEAT samples available for filtering demo")
+            
+    except Exception as e:
+        print(f"✗ Filtering test failed: {e}")
+    
+    # 6. Accessing individual samples
+    print("\n6. Accessing individual samples:")
+    
+    try:
+        if len(unified_dataset) > 0:
+            sample = unified_dataset[0]
+            word_seq, extended_word_seq, pose_seq, vec_seq, audio, spectrogram, aux_info, dataset_info = sample
+            
+            print(f"✓ Sample 0:")
+            print(f"  Dataset: {dataset_info['name']}")
+            print(f"  Pose dim: {dataset_info['pose_dim']}")
+            print(f"  pose_seq shape: {pose_seq.shape}")
+            print(f"  vec_seq shape: {vec_seq.shape}")
+            print(f"  audio shape: {audio.shape}")
+            
+    except Exception as e:
+        print(f"✗ Individual sample access failed: {e}")
+    
+    print("\n=== Example Complete ===")
 
 if __name__ == "__main__":
     main() 

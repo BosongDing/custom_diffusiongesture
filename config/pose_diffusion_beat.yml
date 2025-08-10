@@ -1,8 +1,8 @@
 name: pose_diffusion_trinity
 
-train_data_path: data/trinity
-val_data_path: data/trinity
-test_data_path: data/trinity
+train_data_path: data/beat
+val_data_path: data/beat
+test_data_path: data/beat
 
 wordembed_dim: 300
 wordembed_path: data/fasttext/crawl-300d-2M-subword.bin

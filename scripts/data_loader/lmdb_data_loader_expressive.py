@@ -16,6 +16,24 @@ from data_loader.data_preprocessor_expressive import DataPreprocessor
 import pyarrow
 import copy
 
+# -----------------------------------------------------------------------------
+# Fallback language model for cases where no text processing is needed (e.g.
+# TED-Expressive).  It only provides the two required special tokens and a
+# dummy word-to-index mapping so that downstream code does not crash when the
+# caller forgets to set a real language model via ``set_lang_model``.
+# -----------------------------------------------------------------------------
+
+
+class _DummyLanguageModel:
+    """Very small stand-in to satisfy the interface expected in __getitem__."""
+
+    def __init__(self):
+        self.SOS_token = 1
+        self.EOS_token = 2
+
+    def get_word_index(self, _word):
+        return 0  # Always return padding index
+
 
 def word_seq_collate_fn(data):
     """ collate function for loading word sequences in variable lengths """
@@ -67,7 +85,9 @@ class SpeechMotionDataset(Dataset):
         self.expected_spectrogram_length = utils.data_utils_expressive.calc_spectrogram_length_from_motion_length(
             n_poses, pose_resampling_fps)
 
-        self.lang_model = None
+        # Use a dummy LM by default so that dataset works even if the caller
+        # does not explicitly set one.
+        self.lang_model = _DummyLanguageModel()
 
         logging.info("Reading data '{}'...".format(lmdb_dir))
         preloaded_dir = lmdb_dir + '_cache'
@@ -108,7 +128,19 @@ class SpeechMotionDataset(Dataset):
             sample = txn.get(key)
 
             sample = pyarrow.deserialize(sample)
+            # Unpack and ensure all numeric data is converted to numpy arrays so that
+            # downstream code (which expects the shape attribute) works even if the
+            # original LMDB entry stored lists.
             word_seq, pose_seq, vec_seq, audio, spectrogram, aux_info = sample
+
+            # Convert list inputs (or anything without a ``shape`` attribute) to
+            # numpy.ndarrays as early as possible. This keeps the rest of the
+            # original logic untouched while preventing crashes such as
+            # ``AttributeError: 'list' object has no attribute 'shape'``.
+            pose_seq = np.asarray(pose_seq)
+            vec_seq = np.asarray(vec_seq)
+            audio = np.asarray(audio)
+            spectrogram = np.asarray(spectrogram)
 
         def extend_word_seq(lang, words, end_time=None):
             n_frames = self.n_poses
@@ -169,7 +201,9 @@ class SpeechMotionDataset(Dataset):
         return word_seq_tensor, extended_word_seq, pose_seq, vec_seq, audio, spectrogram, aux_info
 
     def set_lang_model(self, lang_model):
-        self.lang_model = lang_model
+        """Allow external code to override the default dummy language model."""
+        if lang_model is not None:
+            self.lang_model = lang_model
 
     def _make_speaker_model(self, lmdb_dir, cache_path):
         logging.info('  building a speaker model...')

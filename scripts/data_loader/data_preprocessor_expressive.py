@@ -63,7 +63,7 @@ class DataPreprocessor:
         self.audio_sample_length = int(self.n_poses / self.skeleton_resampling_fps * 16000)
 
         # create db for samples
-        map_size = 1024 * 200  # in MB
+        map_size = 1024 * 2000  # in MB
         map_size <<= 20  # in B
         self.dst_lmdb_env = lmdb.open(out_lmdb_dir, map_size=map_size)
         self.n_out_samples = 0
