@@ -20,6 +20,10 @@ from scripts.data_loader.unified_data_loader import (
     create_multi_dataloader,
 )
 
+# Import video saver and expressive connections
+from scripts.beat_visualizer import save_mp4
+from scripts.utils.data_utils_expressive import dir_vec_pairs as expressive_dir_vec_pairs
+
 def visualize_audio_data(audio_data, spectrogram_data, sample_rate=16000, target_fps=15, n_poses=34):
     """
     Create audio visualizations including waveform and spectrogram
@@ -374,6 +378,87 @@ def create_combined_visualization(pose_data, vec_data, audio_data, spectrogram_d
     
     return fig
 
+def _load_connections_for_dataset(dataset_name, trinity_npz=None, beat_npz=None):
+    """
+    Build connections list [(parent_idx, child_idx, length), ...] for each dataset.
+    - ted_expressive: use expressive_dir_vec_pairs
+    - trinity/beat: load from provided NPZ file if given; else return None
+    """
+    if dataset_name == 'ted_expressive':
+        # expressive_dir_vec_pairs is list of (parent, child, length)
+        conns = [(int(a), int(b), float(l)) for (a, b, l) in expressive_dir_vec_pairs]
+        return conns
+    
+    if dataset_name == 'trinity' and trinity_npz and os.path.exists(trinity_npz):
+        data = np.load(trinity_npz, allow_pickle=True)
+        conns = data['connections'].tolist()
+        conns = [(int(p), int(c), float(l)) for (p, c, l) in conns]
+        return conns
+    
+    if dataset_name == 'beat' and beat_npz and os.path.exists(beat_npz):
+        data = np.load(beat_npz, allow_pickle=True)
+        conns = data['connections'].tolist()
+        conns = [(int(p), int(c), float(l)) for (p, c, l) in conns]
+        return conns
+    
+    return None
+
+
+def _save_video_for_sample(dataset_name, pose_seqs, vec_seqs, audios, fps, output_dir, sample_idx,
+                           connections, pose_dim=None):
+    """
+    Save MP4 for one sample using direction vectors and provided connections.
+    vec_seqs: [B, T, pose_dim]
+    connections: list of (parent, child, length)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Select sample
+    vec = vec_seqs[sample_idx]
+    audio = audios[sample_idx]
+    
+    # Ensure numpy
+    if isinstance(vec, torch.Tensor):
+        vec = vec.cpu().numpy()
+    if isinstance(audio, torch.Tensor):
+        audio_np = audio.cpu().numpy()
+    else:
+        audio_np = np.array(audio)
+    
+    # vec shape [T, pose_dim]. We need [T, n_connections, 3]
+    if vec.ndim != 2:
+        raise ValueError(f"Expected vec shape [T, pose_dim], got {vec.shape}")
+    
+    if connections is None:
+        print(f"  ! No connections for {dataset_name}. Skipping video.")
+        return None
+    
+    n_connections = len(connections)
+    # pose_dim might equal n_connections*3; if not provided, infer
+    if pose_dim is None:
+        pose_dim = vec.shape[1]
+    
+    if pose_dim != n_connections * 3:
+        # Try to reshape anyway by inferring connections count
+        if vec.shape[1] % 3 == 0:
+            n_connections_in_vec = vec.shape[1] // 3
+            if n_connections_in_vec != n_connections:
+                print(f"  ! Mismatch: vec has {n_connections_in_vec} connections, provided {n_connections}. Using vec count.")
+                n_connections = n_connections_in_vec
+                connections = connections[:n_connections]
+        else:
+            raise ValueError(f"pose_dim {pose_dim} not divisible by 3")
+    
+    dir_vectors = vec.reshape(vec.shape[0], n_connections, 3)
+    
+    # Output path
+    output_path = os.path.join(output_dir, f"{dataset_name}_sample_{sample_idx}.mp4")
+    
+    # Save video with audio
+    save_mp4(dir_vectors=dir_vectors, connections=connections, output_path=output_path, fps=fps, audio_tensor=audio_np)
+    print(f"  ✓ Saved video: {output_path}")
+    return output_path
+
 def main():
     parser = argparse.ArgumentParser(description='Visualize unified dataset batch with audio')
     parser.add_argument('--trinity_path', type=str,
@@ -389,6 +474,10 @@ def main():
                         help='Samples per dataset per training step')
     parser.add_argument('--output_dir', type=str, default="./unified_visualizations",
                         help='Output directory for visualizations')
+    parser.add_argument('--trinity_npz', type=str, default=None,
+                        help='Optional NPZ file containing connections for Trinity (direction_vectors.npz)')
+    parser.add_argument('--beat_npz', type=str, default=None,
+                        help='Optional NPZ file containing connections for BEAT (direction_vectors.npz)')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -425,10 +514,31 @@ def main():
         for name, meta in info["datasets"].items():
             print(f"  - {name}: size={meta['size']}, pose_dim={meta['pose_dim']}, batch_size={meta['batch_size']}")
         
-        # Create visualizations
-        visualize_unified_batch(loader, args.output_dir)
+        # Create one MP4 per dataset for sample 0 using correct connections
+        batch = loader.get_batch()
+        for name, data in batch.items():
+            print(f"\nCreating video for {name}...")
+            conns = _load_connections_for_dataset(
+                name,
+                trinity_npz=args.trinity_npz,
+                beat_npz=args.beat_npz,
+            )
+            if conns is None:
+                print(f"  ! No connections provided for {name}. Provide --{name}_npz to enable video.")
+                continue
+            _save_video_for_sample(
+                dataset_name=name,
+                pose_seqs=data['pose_seqs'],
+                vec_seqs=data['vec_seqs'],
+                audios=data['audios'],
+                fps=loader.target_fps,
+                output_dir=args.output_dir,
+                sample_idx=0,
+                connections=conns,
+                pose_dim=data['vec_seqs'].shape[-1] if hasattr(data['vec_seqs'], 'shape') else None,
+            )
         
-        print(f"\n✓ All visualizations saved to: {args.output_dir}")
+        print(f"\n✓ All videos saved to: {args.output_dir}")
         
     except Exception as e:
         print(f"✗ Error creating unified loader: {e}")
