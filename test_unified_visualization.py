@@ -386,8 +386,10 @@ def _load_connections_for_dataset(dataset_name, trinity_npz=None, beat_npz=None)
     """
     if dataset_name == 'ted_expressive':
         # expressive_dir_vec_pairs is list of (parent, child, length)
-        conns = [(int(a), int(b), float(l)) for (a, b, l) in expressive_dir_vec_pairs]
-        return conns
+        # Drop (38,39), (38,40), (39,41), (40,42)
+        drop = {(38, 39), (38, 40), (39, 41), (40, 42)}
+        kept = [(int(a), int(b), float(l)) for (a, b, l) in expressive_dir_vec_pairs if (a, b) not in drop]
+        return kept
     
     if dataset_name == 'trinity' and trinity_npz and os.path.exists(trinity_npz):
         data = np.load(trinity_npz, allow_pickle=True)
@@ -405,11 +407,12 @@ def _load_connections_for_dataset(dataset_name, trinity_npz=None, beat_npz=None)
 
 
 def _save_video_for_sample(dataset_name, pose_seqs, vec_seqs, audios, fps, output_dir, sample_idx,
-                           connections, pose_dim=None):
+                           connections, pose_dim=None, mean_dir_vec=None):
     """
     Save MP4 for one sample using direction vectors and provided connections.
     vec_seqs: [B, T, pose_dim]
     connections: list of (parent, child, length)
+    mean_dir_vec: optional mean direction vector to add back (unnormalize)
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -449,15 +452,74 @@ def _save_video_for_sample(dataset_name, pose_seqs, vec_seqs, audios, fps, outpu
         else:
             raise ValueError(f"pose_dim {pose_dim} not divisible by 3")
     
-    dir_vectors = vec.reshape(vec.shape[0], n_connections, 3)
+    # Add back mean if provided (unnormalize)
+    if mean_dir_vec is not None:
+        if mean_dir_vec.shape[0] != pose_dim:
+            print(f"  ! Mean vec shape {mean_dir_vec.shape} doesn't match pose_dim {pose_dim}")
+        else:
+            print(f"  + Adding back mean direction vector")
+            vec = vec + mean_dir_vec  # broadcast over time dimension
     
-    # Output path
+        dir_vectors = vec.reshape(vec.shape[0], n_connections, 3)
+ 
+     # Output path
     output_path = os.path.join(output_dir, f"{dataset_name}_sample_{sample_idx}.mp4")
     
     # Save video with audio
     save_mp4(dir_vectors=dir_vectors, connections=connections, output_path=output_path, fps=fps, audio_tensor=audio_np)
     print(f"  ✓ Saved video: {output_path}")
     return output_path
+
+def _load_expressive_mean_from_config(config_path: str):
+    """Load mean_dir_vec (list of floats) from a YAML config without requiring PyYAML.
+    Assumes mean_dir_vec is on a single line with brackets, as in the provided config.
+    Returns a numpy array or None if not found.
+    """
+    try:
+        if not os.path.exists(config_path):
+            return None
+        with open(config_path, 'r') as f:
+            for line in f:
+                if line.strip().startswith('mean_dir_vec:'):
+                    # Extract bracket content
+                    start = line.find('[')
+                    end = line.rfind(']')
+                    if start != -1 and end != -1 and end > start:
+                        content = line[start+1:end]
+                        # Split by commas and parse floats
+                        parts = [p.strip() for p in content.split(',') if p.strip()]
+                        import numpy as np
+                        vec = np.array([float(x) for x in parts], dtype=np.float32)
+                        return vec
+        return None
+    except Exception:
+        return None
+
+# New helper: adjust TED expressive mean to target pose_dim (e.g., 114) by pruning connections once
+def _adjust_ted_expressive_mean(mean_vec: np.ndarray, target_pose_dim: int):
+    """Return a mean direction vector adjusted to TED expressive target pose_dim.
+    If the input is 126 and target is 114, drop the pruned connections.
+    Otherwise, return unchanged.
+    """
+    if mean_vec is None:
+        return None
+    if mean_vec.ndim != 1:
+        mean_vec = mean_vec.reshape(-1)
+    if target_pose_dim is None:
+        return mean_vec
+    if mean_vec.size == target_pose_dim:
+        return mean_vec
+    if mean_vec.size in (114, 126) and target_pose_dim in (114, 126):
+        # Handle pruning 126 -> 114 using expressive_dir_vec_pairs and drop set
+        if mean_vec.size == 126 and target_pose_dim == 114:
+            drop = {(38, 39), (38, 40), (39, 41), (40, 42)}
+            keep_indices = [i for i, (a, b, _) in enumerate(expressive_dir_vec_pairs) if (a, b) not in drop]
+            try:
+                pruned = mean_vec.reshape(-1, 3)[keep_indices].reshape(-1)
+                return pruned
+            except Exception:
+                return mean_vec
+    return mean_vec
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize unified dataset batch with audio')
@@ -474,10 +536,20 @@ def main():
                         help='Samples per dataset per training step')
     parser.add_argument('--output_dir', type=str, default="./unified_visualizations",
                         help='Output directory for visualizations')
-    parser.add_argument('--trinity_npz', type=str, default=None,
-                        help='Optional NPZ file containing connections for Trinity (direction_vectors.npz)')
-    parser.add_argument('--beat_npz', type=str, default=None,
-                        help='Optional NPZ file containing connections for BEAT (direction_vectors.npz)')
+    parser.add_argument('--trinity_npz', type=str, default="./data/Recording_001_direction_vectors.npz",
+                        help='NPZ file containing connections for Trinity (direction_vectors.npz)')
+    parser.add_argument('--beat_npz', type=str, default="./data/1_wayne_0_100_100_direction_vectors.npz",
+                        help='NPZ file containing connections for BEAT (direction_vectors.npz)')
+    parser.add_argument('--trinity_mean', type=str, default="./data/trinity_all_mean_dir_vec.npy",
+                        help='Mean direction vector file for Trinity')
+    parser.add_argument('--beat_mean', type=str, default="./data/beat_all_mean_dir_vec.npy", 
+                        help='Mean direction vector file for BEAT')
+    parser.add_argument('--expressive_mean', type=str, default=None,
+                        help='Mean direction vector file for TED Expressive (optional)')
+    parser.add_argument('--expressive_config', type=str, default="./config/pose_diffusion_expressive.yml",
+                        help='Config file containing TED Expressive mean_dir_vec')
+    parser.add_argument('--expressive_mean_out', type=str, default="./data/ted_expressive_mean_dir_vec.npy",
+                        help='Output path to save the 114-dim TED Expressive mean vector')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -514,6 +586,46 @@ def main():
         for name, meta in info["datasets"].items():
             print(f"  - {name}: size={meta['size']}, pose_dim={meta['pose_dim']}, batch_size={meta['batch_size']}")
         
+        # Preload mean vectors once, validated/sliced against target pose_dim
+        mean_vectors = {}
+        for name, meta in info["datasets"].items():
+            pose_dim_target = meta.get('pose_dim')
+            mean_vec = None
+            if name == 'trinity' and args.trinity_mean and os.path.exists(args.trinity_mean):
+                mean_vec = np.load(args.trinity_mean)
+                print(f"  + Loaded Trinity mean vector: {mean_vec.shape}")
+            elif name == 'beat' and args.beat_mean and os.path.exists(args.beat_mean):
+                mean_vec = np.load(args.beat_mean)
+                print(f"  + Loaded BEAT mean vector: {mean_vec.shape}")
+            elif name == 'ted_expressive':
+                # Prefer explicit file; else fallback to config
+                if args.expressive_mean and os.path.exists(args.expressive_mean):
+                    mean_vec = np.load(args.expressive_mean)
+                    print(f"  + Loaded TED Expressive mean vector: {mean_vec.shape}")
+                elif args.expressive_config:
+                    mean_vec = _load_expressive_mean_from_config(args.expressive_config)
+                    if mean_vec is not None:
+                        print(f"  + Loaded TED Expressive mean vector from config: {mean_vec.shape}")
+                    else:
+                        print("  ! Could not load TED Expressive mean from config; proceeding without it")
+                # Adjust to match target pose_dim (e.g., 114)
+                if mean_vec is not None:
+                    adjusted = _adjust_ted_expressive_mean(mean_vec, pose_dim_target)
+                    if adjusted is not None and adjusted.size != mean_vec.size:
+                        print(f"  + Sliced TED Expressive mean to match pose_dim {pose_dim_target}: {adjusted.shape}")
+                    mean_vec = adjusted
+                    # Persist 114-dim mean to file for future training parity with trinity/beat
+                    if args.expressive_mean_out and isinstance(args.expressive_mean_out, str):
+                        out_dir = os.path.dirname(args.expressive_mean_out)
+                        if out_dir:
+                            os.makedirs(out_dir, exist_ok=True)
+                        try:
+                            np.save(args.expressive_mean_out, mean_vec)
+                            print(f"  ✓ Saved TED Expressive mean to: {args.expressive_mean_out}")
+                        except Exception as e:
+                            print(f"  ! Failed to save TED Expressive mean: {e}")
+            mean_vectors[name] = mean_vec
+        
         # Create one MP4 per dataset for sample 0 using correct connections
         batch = loader.get_batch()
         for name, data in batch.items():
@@ -526,6 +638,7 @@ def main():
             if conns is None:
                 print(f"  ! No connections provided for {name}. Provide --{name}_npz to enable video.")
                 continue
+            
             _save_video_for_sample(
                 dataset_name=name,
                 pose_seqs=data['pose_seqs'],
@@ -533,9 +646,10 @@ def main():
                 audios=data['audios'],
                 fps=loader.target_fps,
                 output_dir=args.output_dir,
-                sample_idx=0,
+                sample_idx=2,
                 connections=conns,
                 pose_dim=data['vec_seqs'].shape[-1] if hasattr(data['vec_seqs'], 'shape') else None,
+                mean_dir_vec=mean_vectors.get(name),
             )
         
         print(f"\n✓ All videos saved to: {args.output_dir}")

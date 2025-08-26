@@ -384,7 +384,7 @@ def create_multi_dataloader(
                 "name": "ted_expressive",
                 "path": ted_expressive_path,
                 "type": "lmdb_expressive",
-                "pose_dim": 126,
+                "pose_dim": 114,
             }
         )
 

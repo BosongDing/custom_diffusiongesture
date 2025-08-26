@@ -8,9 +8,12 @@ import numpy as np
 import pyarrow
 import tqdm
 from sklearn.preprocessing import normalize
+import os
 
 import utils.data_utils_expressive
 from data_loader.motion_preprocessor_expressive import MotionPreprocessor
+from utils.data_utils_expressive import dir_vec_pairs
+
 def custom_serialize(data):
     """Convert numpy arrays to lists before serialization"""
     if isinstance(data, np.ndarray):
@@ -54,6 +57,41 @@ class DataPreprocessor:
         self.mean_pose = mean_pose
         self.mean_dir_vec = mean_dir_vec
         self.disable_filtering = disable_filtering
+        self.out_lmdb_dir = out_lmdb_dir
+
+        # Define TED head edges to drop: (nose→right eye), (nose→left eye), (right eye→right ear), (left eye→left ear)
+        # Keep neck→nose
+        head_edges_to_drop = {(38, 39), (38, 40), (39, 41), (40, 42)}
+        # Build indices to keep according to dir_vec_pairs order
+        self.keep_indices = [i for i, (a, b, _l) in enumerate(dir_vec_pairs) if (a, b) not in head_edges_to_drop]
+        # Prepare sliced mean vector to match kept connections
+        # mean_dir_vec is expected as shape (..., 3); ensure slicing on connection axis
+        try:
+            self.mean_dir_vec_kept = self.mean_dir_vec[self.keep_indices]
+        except Exception:
+            mean_flat = np.asarray(self.mean_dir_vec)
+            if mean_flat.ndim == 1 and mean_flat.size % 3 == 0:
+                mean_reshaped = mean_flat.reshape(-1, 3)
+                self.mean_dir_vec_kept = mean_reshaped[self.keep_indices]
+                self.mean_dir_vec = mean_reshaped
+            else:
+                self.mean_dir_vec_kept = self.mean_dir_vec
+
+        # Align mean with Z-axis inversion applied during data creation
+        try:
+            self.mean_dir_vec_kept = self.mean_dir_vec_kept.copy()
+            self.mean_dir_vec_kept[..., 2] *= -1.0
+        except Exception as e:
+            print(f"Warning: failed to invert Z on mean_dir_vec for expressive: {e}")
+
+        # Save pruned mean alongside cache directory
+        try:
+            os.makedirs(self.out_lmdb_dir, exist_ok=True)
+            pruned_mean_path = os.path.join(self.out_lmdb_dir, 'mean_dir_vec_pruned.npy')
+            if not os.path.exists(pruned_mean_path):
+                np.save(pruned_mean_path, self.mean_dir_vec_kept.reshape(-1))
+        except Exception as e:
+            print(f"Warning: failed to save pruned mean to cache: {e}")
 
         self.src_lmdb_env = lmdb.open(clip_lmdb_dir, readonly=True, lock=False)
         with self.src_lmdb_env.begin() as txn:
@@ -89,7 +127,7 @@ class DataPreprocessor:
                     except Exception as e:
                         print(f"Error processing clip {vid}, {clip_idx}: {e}")
                         break
-                        
+            
         except Exception as e:
             print(f"Error in run method: {e}")
         finally:
@@ -213,8 +251,13 @@ class DataPreprocessor:
                                                                  aux_info):
                     # preprocessing for poses
                     poses = np.asarray(poses)
-                    dir_vec = utils.data_utils_expressive.convert_pose_seq_to_dir_vec(poses)
-                    normalized_dir_vec = self.normalize_dir_vec(dir_vec, self.mean_dir_vec)
+                    # Full vectors then slice kept connections
+                    dir_vec_full = utils.data_utils_expressive.convert_pose_seq_to_dir_vec(poses)
+                    # Invert Z to correct facing for expressive data at creation time
+                    dir_vec_full = dir_vec_full.copy()
+                    dir_vec_full[..., 2] *= -1.0
+                    dir_vec = dir_vec_full[:, self.keep_indices, :]
+                    normalized_dir_vec = self.normalize_dir_vec(dir_vec, self.mean_dir_vec_kept)
 
                     # Ensure all numpy arrays have correct dtypes
                     poses = poses.astype(np.float32)
@@ -247,7 +290,7 @@ class DataPreprocessor:
                     txn.abort()  # Safety check in case transaction wasn't committed or aborted
                     
         return n_filtered_out
-
+    
     @staticmethod
     def normalize_dir_vec(dir_vec, mean_dir_vec):
         return dir_vec - mean_dir_vec

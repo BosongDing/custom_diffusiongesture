@@ -5,6 +5,7 @@ import sys
 import argparse
 import time
 import torch
+import numpy as np
 
 # Add the scripts directory to Python path
 sys.path.append('scripts')
